@@ -71,6 +71,89 @@ Subtotal: $32.25
 Tax (8.75%): $2.82
 Total: $35.07
 Payment: Visa ending 4242
+""",
+    "form": """
+EMPLOYEE ONBOARDING FORM
+
+Form Title: New Employee Onboarding
+Submission Date: March 10, 2024
+Submitted By: Sarah Lee
+
+Full Name: Sarah Lee
+Job Title: Software Engineer
+Department: Engineering
+Start Date: March 15, 2024
+Manager: David Kim
+Emergency Contact: John Lee, (415) 555-0100
+""",
+    "report": """
+QUARTERLY PERFORMANCE REPORT — Q1 2024
+
+Title: Q1 2024 Business Performance Report
+Author: Analytics Team
+Date: April 1, 2024
+
+Executive Summary:
+Q1 showed strong growth across all business units despite macroeconomic headwinds.
+
+Key Findings:
+- Revenue increased 18% YoY to $4.2M
+- Customer acquisition cost dropped 12%
+- Net Promoter Score improved from 42 to 58
+- Churn rate held steady at 2.1%
+
+Recommendations:
+- Increase investment in top-performing acquisition channels
+- Launch retention program for at-risk accounts
+- Hire 3 additional sales engineers by Q2
+""",
+    "letter": """
+April 5, 2024
+
+From: Dr. Patricia Moore, Dean of Admissions
+       Stanford University
+
+To: James Carter
+    456 Oak Street
+    Austin, TX 78701
+
+Subject: Graduate Admission Decision — Fall 2024
+
+Dear Mr. Carter,
+
+We are pleased to inform you that you have been admitted to the Stanford Computer Science
+graduate program for Fall 2024. Your academic record and research experience were exceptional.
+
+Please confirm your enrollment by May 1, 2024.
+
+Sincerely,
+Dr. Patricia Moore
+Dean of Admissions
+""",
+    "resume": """
+ALEX JOHNSON
+alex.johnson@email.com | (415) 555-0192 | San Francisco, CA
+
+SUMMARY
+Full-stack software engineer with 5 years of experience building scalable web applications.
+
+SKILLS
+Python, TypeScript, React, FastAPI, Docker, PostgreSQL, AWS
+
+EXPERIENCE
+
+Senior Software Engineer — Stripe (2022 – Present)
+- Led migration to event-driven architecture, reducing latency by 40%
+- Mentored 3 junior engineers
+
+Software Engineer — Airbnb (2020 – 2022)
+- Built real-time availability API serving 2M requests/day
+
+EDUCATION
+B.S. Computer Science — UC Berkeley, 2020, GPA: 3.8
+
+CERTIFICATIONS
+AWS Certified Solutions Architect (2023)
 """
 }
 
