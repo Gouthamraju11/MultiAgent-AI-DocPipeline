@@ -4,18 +4,10 @@ const API = 'http://localhost:8000'
 
 const DOC_ICONS = {
   invoice: '🧾', contract: '📋', receipt: '🏷️',
-  form: '📝', report: '📊', letter: '✉️', unknown: '📄'
+  form: '📝', report: '📊', letter: '✉️', resume: '👤', unknown: '📄'
 }
 
-const STATUS_COLOR = {
-  idle: '#4a5568',
-  uploading: '#d4a017',
-  processing: '#d4a017',
-  complete: '#2d6a4f',
-  error: '#c0392b'
-}
-
-function AgentStep({ number, name, status, data, isActive }) {
+function AgentStep({ number, name, status, data }) {
   const [open, setOpen] = useState(false)
   const done = status === 'done'
   const running = status === 'running'
@@ -220,7 +212,37 @@ Total: $35.07
 Payment: Visa ending in 4242
 Auth Code: 789012
 
-Thank you for your purchase!`
+Thank you for your purchase!`,
+
+  resume: `ALEX JOHNSON
+alex.johnson@email.com | (415) 555-0192 | San Francisco, CA
+linkedin.com/in/alexjohnson | github.com/alexjohnson
+
+SUMMARY
+Full-stack software engineer with 5 years of experience building scalable web applications. Passionate about developer tooling and open-source software.
+
+SKILLS
+Languages: Python, TypeScript, Go, SQL
+Frameworks: React, FastAPI, Node.js, Django
+Tools: Docker, Kubernetes, PostgreSQL, Redis, AWS
+
+EXPERIENCE
+
+Senior Software Engineer — Stripe, San Francisco, CA (2022 – Present)
+- Led migration of payment processing service to event-driven architecture, reducing latency by 40%
+- Mentored 3 junior engineers and conducted 50+ technical interviews
+
+Software Engineer — Airbnb, San Francisco, CA (2020 – 2022)
+- Built real-time availability API serving 2M requests/day
+- Reduced infrastructure costs by 25% through query optimization
+
+EDUCATION
+B.S. Computer Science — UC Berkeley, 2020
+GPA: 3.8 / 4.0
+
+CERTIFICATIONS
+AWS Certified Solutions Architect (2023)
+Google Professional Cloud Developer (2022)`
 }
 
 export default function App() {
@@ -384,7 +406,7 @@ export default function App() {
                   background: dragOver ? 'rgba(212,160,23,0.03)' : file ? 'rgba(45,106,79,0.04)' : 'transparent'
                 }}
               >
-                <input ref={fileRef} type="file" hidden accept=".txt,.pdf,.md,.csv,.json"
+                <input ref={fileRef} type="file" hidden accept=".txt,.pdf,.md,.csv,.json,.docx"
                   onChange={e => { const f = e.target.files[0]; if (f) { setFile(f); setResult(null); setError(null) } }} />
                 <div style={{ fontSize: 28, marginBottom: 12 }}>
                   {file ? '📄' : '⬆'}
@@ -393,7 +415,7 @@ export default function App() {
                   {file ? file.name : 'Drop a document or click to upload'}
                 </div>
                 <div style={{ fontSize: 11, color: '#444', fontFamily: 'DM Mono, monospace' }}>
-                  {file ? `${(file.size / 1024).toFixed(1)} KB` : '.txt · .pdf · .md · .csv · .json'}
+                  {file ? `${(file.size / 1024).toFixed(1)} KB` : '.pdf · .docx · .txt · .csv · .md · .json'}
                 </div>
               </div>
             ) : (
