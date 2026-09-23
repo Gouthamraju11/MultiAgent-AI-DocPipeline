@@ -8,9 +8,9 @@
 
 A production-oriented document intelligence system that turns unstructured business documents into validated JSON. Three focused stages classify the document, extract type-specific fields, and gate the result through deterministic and semantic quality checks.
 
-**[Open the free browser demo](https://gouthamraju11.github.io/MultiAgent-AI-DocPipeline/)** · **[Explore the API](#api)** · **[Review the AWS architecture](#event-driven-aws-architecture)**
+**[Run locally](#quick-start--zero-credentials)** · **[Explore the API](#api)** · **[Review the AWS architecture](#event-driven-aws-architecture)**
 
-> The hosted demo is deliberately **$0 and zero-credential**: processing happens in the browser and no content is uploaded. The FastAPI application adds PDF/DOCX support and optional LLM providers. The AWS stack is source code only until someone explicitly deploys it.
+> The local browser fallback is deliberately **$0 and zero-credential**: processing happens on-device and no content is uploaded. The FastAPI application adds PDF/DOCX support and optional LLM providers. The AWS stack is source code only until someone explicitly deploys it.
 
 ## What this project demonstrates
 
@@ -27,7 +27,7 @@ A production-oriented document intelligence system that turns unstructured busin
 
 | Mode | Cost | Processing | Best for |
 |---|---:|---|---|
-| Browser demo | **$0** | On-device deterministic pipeline; TXT, MD, JSON, CSV and pasted text | Trying the UI instantly |
+| Browser fallback | **$0** | On-device deterministic pipeline; TXT, MD, JSON, CSV and pasted text | Trying the UI locally |
 | Local FastAPI | **$0** | Local deterministic pipeline or local Ollama; all six file formats | Development and portfolio demos |
 | AWS serverless | Usage-based | Bedrock agents across Lambda/SQS | Studying or deploying production architecture |
 
@@ -194,7 +194,7 @@ The suite covers API contracts, upload limits, all deterministic pipeline stages
 ├── tests/                    # Local and serverless tests
 ├── template.yaml             # AWS SAM / CloudFormation architecture
 ├── docker-compose.yml
-└── .github/workflows/        # CI + free GitHub Pages demo
+└── .github/workflows/        # CI checks (no deployment)
 ```
 
 ## Known boundary
