@@ -9,6 +9,9 @@ env/
 dist/
 build/
 .pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
 # Environment & secrets — NEVER commit these
 .env
@@ -21,6 +24,7 @@ build/
 node_modules/
 frontend/dist/
 frontend/.vite/
+npm-debug.log*
 
 # Editor
 .vscode/

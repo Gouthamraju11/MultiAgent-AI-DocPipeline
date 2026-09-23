@@ -1,639 +1,305 @@
-import { useState, useRef, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import './App.css'
+import { processInBrowser } from './browserPipeline.js'
 
-const API = 'http://localhost:8000'
+const API_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '')
+const MAX_FILE_BYTES = 10 * 1024 * 1024
+const SUPPORTED_EXTENSIONS = ['.txt', '.md', '.json', '.csv', '.pdf', '.docx']
 
-const DOC_ICONS = {
-  invoice: '🧾', contract: '📋', receipt: '🏷️',
-  form: '📝', report: '📊', letter: '✉️', resume: '👤', unknown: '📄'
+const EXAMPLES = {
+  invoice: `INVOICE\nVendor: Northstar Cloud Systems\nInvoice Number: NS-2048\nInvoice Date: 2026-09-18\nDue Date: 2026-10-18\n\nPlatform subscription  $750.00\nSupport package        $125.00\nTax: $70.00\nTotal Due: $945.00\nPayment Terms: Net 30`,
+  contract: `SERVICE AGREEMENT\nParty A: Northstar Cloud Systems\nParty B: Meridian Labs\nEffective Date: September 18, 2026\nExpiration Date: September 18, 2027\nGoverning Law: California\n\nNorthstar shall provide managed infrastructure services. Meridian Labs agrees to pay all invoices within 30 days.\nTermination: Either party may terminate with 30 days written notice.`,
+  resume: `Maya Chen\nSan Francisco, CA\nmaya.chen@example.com | +1 (415) 555-0182\n\nSUMMARY\nSoftware engineer focused on reliable AI platforms and developer infrastructure.\n\nSKILLS\nPython, FastAPI, React, PostgreSQL, AWS\n\nEXPERIENCE\nSenior Software Engineer, Northstar Labs — 2023–2026\nBuilt document intelligence systems and production APIs.\n\nEDUCATION\nB.S. Computer Science, State University — 2022`,
+  report: `Q3 PLATFORM RELIABILITY REPORT\nAuthor: Site Reliability Team\nDate: 2026-09-20\n\nExecutive Summary\nAvailability improved while deployment lead time fell across all production services.\n\nKey Findings\n- API availability reached 99.98%\n- Median deployment time fell by 31%\n\nRecommendations\n- Expand automated rollback coverage\n- Add regional failure drills`,
 }
 
-function AgentStep({ number, name, status, data }) {
-  const [open, setOpen] = useState(false)
-  const done = status === 'done'
-  const running = status === 'running'
+const STAGES = [
+  { number: '01', name: 'Classify', detail: 'Detect document type' },
+  { number: '02', name: 'Extract', detail: 'Build structured data' },
+  { number: '03', name: 'Validate', detail: 'Check quality & risk' },
+]
 
-  return (
-    <div style={{
-      border: `1px solid ${done ? '#2d6a4f' : running ? '#d4a017' : '#2a2a2a'}`,
-      borderRadius: 2,
-      marginBottom: 8,
-      transition: 'border-color 0.4s',
-      background: done ? 'rgba(45,106,79,0.04)' : 'transparent'
-    }}>
-      <div
-        onClick={() => done && setOpen(o => !o)}
-        style={{
-          display: 'flex', alignItems: 'center', gap: 12,
-          padding: '12px 16px', cursor: done ? 'pointer' : 'default',
-          userSelect: 'none'
-        }}
-      >
-        <div style={{
-          width: 28, height: 28, borderRadius: '50%',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 11, fontFamily: 'DM Mono, monospace', fontWeight: 500,
-          background: done ? '#2d6a4f' : running ? '#d4a017' : '#1a1a1a',
-          color: done || running ? '#fff' : '#555',
-          border: `1px solid ${done ? '#2d6a4f' : running ? '#d4a017' : '#333'}`,
-          transition: 'all 0.4s',
-          flexShrink: 0
-        }}>
-          {done ? '✓' : running ? '⟳' : number}
-        </div>
-        <div style={{ flex: 1 }}>
-          <div style={{
-            fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase',
-            color: done ? '#2d6a4f' : running ? '#d4a017' : '#555',
-            fontFamily: 'DM Mono, monospace', fontWeight: 500
-          }}>
-            Agent {number}
-          </div>
-          <div style={{ fontSize: 14, color: done ? '#e8e8e8' : '#666', fontFamily: 'Syne, sans-serif', fontWeight: 600 }}>
-            {name}
-          </div>
-        </div>
-        {done && (
-          <div style={{ fontSize: 11, color: '#555', fontFamily: 'DM Mono, monospace' }}>
-            {open ? '▲ hide' : '▼ show'}
-          </div>
-        )}
-        {running && (
-          <div style={{ fontSize: 11, color: '#d4a017', fontFamily: 'DM Mono, monospace', animation: 'pulse 1s infinite' }}>
-            running...
-          </div>
-        )}
-      </div>
-
-      {open && done && data && (
-        <div style={{
-          borderTop: '1px solid #2a2a2a',
-          padding: '12px 16px',
-          background: '#0d0d0d'
-        }}>
-          <pre style={{
-            margin: 0, fontSize: 11, lineHeight: 1.7,
-            color: '#a8c5a0', fontFamily: 'DM Mono, monospace',
-            overflow: 'auto', maxHeight: 300,
-            whiteSpace: 'pre-wrap', wordBreak: 'break-word'
-          }}>
-            {JSON.stringify(data, null, 2)}
-          </pre>
-        </div>
-      )}
-    </div>
-  )
+function Icon({ name, size = 20 }) {
+  const paths = {
+    upload: <><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M20 15v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-4"/></>,
+    file: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></>,
+    spark: <><path d="m12 3-1.6 4.4L6 9l4.4 1.6L12 15l1.6-4.4L18 9l-4.4-1.6L12 3Z"/><path d="m5 16-.8 2.2L2 19l2.2.8L5 22l.8-2.2L8 19l-2.2-.8L5 16ZM19 13l-.6 1.4L17 15l1.4.6L19 17l.6-1.4L21 15l-1.4-.6L19 13Z"/></>,
+    check: <path d="m5 12 4 4L19 6"/>,
+    alert: <><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></>,
+    download: <><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></>,
+    close: <><path d="m6 6 12 12M18 6 6 18"/></>,
+    github: <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3.3-.4 6.8-1.6 6.8-7.4A5.8 5.8 0 0 0 19.3 3 5.4 5.4 0 0 0 19.1 0S17.9-.4 15 1.5a13.4 13.4 0 0 0-7 0C5.1-.4 3.9 0 3.9 0a5.4 5.4 0 0 0-.2 3A5.8 5.8 0 0 0 2.2 7.1c0 5.8 3.5 7 6.8 7.4A4.8 4.8 0 0 0 8 18v4"/>,
+    arrow: <><path d="M5 12h14M13 6l6 6-6 6"/></>,
+  }
+  return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>
 }
 
-function ValidationBadge({ validation }) {
-  if (!validation) return null
-  const { valid, human_review_required, issues, warnings, confidence } = validation
-  return (
-    <div style={{
-      padding: '14px 18px',
-      background: human_review_required ? 'rgba(192,57,43,0.08)' : valid ? 'rgba(45,106,79,0.08)' : 'rgba(192,57,43,0.08)',
-      border: `1px solid ${human_review_required ? '#c0392b' : valid ? '#2d6a4f' : '#c0392b'}`,
-      borderRadius: 2, marginTop: 16
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: issues?.length || warnings?.length ? 10 : 0 }}>
-        <span style={{ fontSize: 18 }}>{human_review_required ? '⚠️' : valid ? '✅' : '❌'}</span>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 700, fontFamily: 'Syne, sans-serif', color: '#e8e8e8' }}>
-            {human_review_required ? 'Human Review Required' : valid ? 'Validation Passed' : 'Validation Failed'}
-          </div>
-          <div style={{ fontSize: 11, color: '#888', fontFamily: 'DM Mono, monospace' }}>
-            confidence: {(confidence * 100).toFixed(0)}%
-          </div>
-        </div>
-      </div>
-      {issues?.length > 0 && (
-        <div style={{ marginTop: 8 }}>
-          {issues.map((issue, i) => (
-            <div key={i} style={{ fontSize: 11, color: '#e57373', fontFamily: 'DM Mono, monospace', marginBottom: 3 }}>
-              ✗ {issue}
-            </div>
-          ))}
-        </div>
-      )}
-      {warnings?.length > 0 && (
-        <div style={{ marginTop: 6 }}>
-          {warnings.map((w, i) => (
-            <div key={i} style={{ fontSize: 11, color: '#d4a017', fontFamily: 'DM Mono, monospace', marginBottom: 3 }}>
-              ⚠ {w}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
+function formatLabel(value) {
+  return value.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
-function SampleDocButton({ label, text, onSelect }) {
-  return (
-    <button
-      onClick={() => onSelect(text)}
-      style={{
-        background: 'transparent', border: '1px solid #2a2a2a',
-        color: '#888', fontFamily: 'DM Mono, monospace', fontSize: 10,
-        letterSpacing: '0.08em', padding: '5px 10px', cursor: 'pointer',
-        borderRadius: 2, textTransform: 'uppercase',
-        transition: 'all 0.2s'
-      }}
-      onMouseEnter={e => { e.target.style.borderColor = '#d4a017'; e.target.style.color = '#d4a017' }}
-      onMouseLeave={e => { e.target.style.borderColor = '#2a2a2a'; e.target.style.color = '#888' }}
-    >
-      {label}
-    </button>
-  )
+function formatValue(value) {
+  if (value === null || value === undefined || value === '') return <span className="empty-value">Not detected</span>
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
+  if (Array.isArray(value)) {
+    if (!value.length) return <span className="empty-value">None detected</span>
+    return (
+      <ul className="value-list">
+        {value.map((item, index) => (
+          <li key={`${JSON.stringify(item)}-${index}`}>{typeof item === 'object' ? Object.entries(item).map(([key, val]) => `${formatLabel(key)}: ${val}`).join(' · ') : String(item)}</li>
+        ))}
+      </ul>
+    )
+  }
+  if (typeof value === 'object') {
+    const entries = Object.entries(value)
+    if (!entries.length) return <span className="empty-value">None detected</span>
+    return <div className="nested-value">{entries.map(([key, val]) => <span key={key}><strong>{formatLabel(key)}</strong>{String(val)}</span>)}</div>
+  }
+  return String(value)
 }
 
-const SAMPLES = {
-  invoice: `INVOICE
-
-Vendor: Acme Corp
-Invoice Number: INV-2024-001
-Invoice Date: January 15, 2024
-Due Date: February 14, 2024
-
-Bill To:
-TechStartup Inc.
-123 Silicon Valley Blvd
-San Francisco, CA 94105
-
-Line Items:
-1. Software License (Annual)    Qty: 1    Unit Price: $1,000.00    Total: $1,000.00
-2. Premium Support Package      Qty: 1    Unit Price: $250.00     Total: $250.00
-
-Subtotal: $1,250.00
-Tax (0%): $0.00
-Total Due: $1,250.00
-
-Payment Terms: Net 30
-Wire Transfer to: Chase Bank, Acct #123456789`,
-
-  contract: `SERVICE AGREEMENT
-
-This Service Agreement ("Agreement") is entered into as of March 1, 2024, between:
-
-Party A: BuildRight LLC, a Delaware corporation ("Service Provider")
-Party B: Momentum Ventures, a California LLC ("Client")
-
-1. SERVICES
-Service Provider agrees to deliver custom software development services as described in Exhibit A.
-
-2. TERM
-This Agreement shall commence on March 1, 2024 and continue through February 28, 2025, unless terminated earlier in accordance with Section 7.
-
-3. PAYMENT
-Client shall pay $15,000 per month, due within 15 days of invoice receipt.
-
-4. GOVERNING LAW
-This Agreement shall be governed by the laws of the State of Delaware.
-
-5. TERMINATION
-Either party may terminate this Agreement with 30 days written notice.
-
-IN WITNESS WHEREOF, the parties have executed this Agreement as of the date first written above.`,
-
-  receipt: `RECEIPT
-
-Merchant: Blue Bottle Coffee
-Date: April 22, 2024 10:32 AM
-Location: 315 Linden St, San Francisco, CA
-
-Items:
-- Ethiopia Single Origin (12oz bag)   $22.00
-- Cortado                              $5.50
-- Almond Croissant                     $4.75
-
-Subtotal: $32.25
-Tax (8.75%): $2.82
-Total: $35.07
-
-Payment: Visa ending in 4242
-Auth Code: 789012
-
-Thank you for your purchase!`,
-
-  resume: `ALEX JOHNSON
-alex.johnson@email.com | (415) 555-0192 | San Francisco, CA
-linkedin.com/in/alexjohnson | github.com/alexjohnson
-
-SUMMARY
-Full-stack software engineer with 5 years of experience building scalable web applications. Passionate about developer tooling and open-source software.
-
-SKILLS
-Languages: Python, TypeScript, Go, SQL
-Frameworks: React, FastAPI, Node.js, Django
-Tools: Docker, Kubernetes, PostgreSQL, Redis, AWS
-
-EXPERIENCE
-
-Senior Software Engineer — Stripe, San Francisco, CA (2022 – Present)
-- Led migration of payment processing service to event-driven architecture, reducing latency by 40%
-- Mentored 3 junior engineers and conducted 50+ technical interviews
-
-Software Engineer — Airbnb, San Francisco, CA (2020 – 2022)
-- Built real-time availability API serving 2M requests/day
-- Reduced infrastructure costs by 25% through query optimization
-
-EDUCATION
-B.S. Computer Science — UC Berkeley, 2020
-GPA: 3.8 / 4.0
-
-CERTIFICATIONS
-AWS Certified Solutions Architect (2023)
-Google Professional Cloud Developer (2022)`
+async function apiRequest(path, options = {}) {
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), 90_000)
+  try {
+    const response = await fetch(`${API_BASE}${path}`, { ...options, signal: controller.signal })
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(payload.detail || `Request failed with status ${response.status}`)
+    return payload
+  } catch (error) {
+    if (error.name === 'AbortError') throw new Error('The request timed out. Check the AI provider and try again.')
+    throw error
+  } finally {
+    window.clearTimeout(timeout)
+  }
 }
 
-export default function App() {
-  const [dragOver, setDragOver] = useState(false)
+function App() {
+  const [mode, setMode] = useState('upload')
   const [file, setFile] = useState(null)
-  const [textMode, setTextMode] = useState(false)
-  const [rawText, setRawText] = useState('')
-  const [status, setStatus] = useState('idle')
-  const [agentStatus, setAgentStatus] = useState({ a1: 'idle', a2: 'idle', a3: 'idle' })
+  const [text, setText] = useState('')
+  const [dragging, setDragging] = useState(false)
+  const [processing, setProcessing] = useState(false)
   const [result, setResult] = useState(null)
-  const [error, setError] = useState(null)
-  const [llmProvider, setLlmProvider] = useState(null)
-  const fileRef = useRef()
+  const [error, setError] = useState('')
+  const [health, setHealth] = useState(null)
+  const fileInput = useRef(null)
 
-  const reset = () => {
-    setStatus('idle')
-    setResult(null)
-    setError(null)
-    setFile(null)
-    setRawText('')
-    setAgentStatus({ a1: 'idle', a2: 'idle', a3: 'idle' })
-  }
-
-  const simulateAgentProgress = async () => {
-    setAgentStatus({ a1: 'running', a2: 'idle', a3: 'idle' })
-    await new Promise(r => setTimeout(r, 800))
-    setAgentStatus({ a1: 'done', a2: 'running', a3: 'idle' })
-    await new Promise(r => setTimeout(r, 900))
-    setAgentStatus({ a1: 'done', a2: 'done', a3: 'running' })
-    await new Promise(r => setTimeout(r, 700))
-    setAgentStatus({ a1: 'done', a2: 'done', a3: 'done' })
-  }
-
-  const runPipeline = useCallback(async () => {
-    setStatus('processing')
-    setError(null)
-    setResult(null)
-
-    const progressPromise = simulateAgentProgress()
-
-    try {
-      let resp
-      if (textMode) {
-        resp = await fetch(`${API}/process-text`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: rawText })
-        })
-      } else {
-        const fd = new FormData()
-        fd.append('file', file)
-        resp = await fetch(`${API}/process`, { method: 'POST', body: fd })
-      }
-
-      await progressPromise
-
-      if (!resp.ok) {
-        const err = await resp.json()
-        throw new Error(err.detail || 'Pipeline failed')
-      }
-
-      const data = await resp.json()
-      setResult(data)
-      setLlmProvider(data.llm_provider)
-      setStatus('complete')
-    } catch (e) {
-      await progressPromise
-      setError(e.message)
-      setStatus('error')
-    }
-  }, [file, textMode, rawText])
-
-  const handleDrop = useCallback((e) => {
-    e.preventDefault()
-    setDragOver(false)
-    const f = e.dataTransfer.files[0]
-    if (f) { setFile(f); setTextMode(false); setResult(null); setError(null) }
+  useEffect(() => {
+    apiRequest('/health').then(setHealth).catch(() => setHealth({ status: 'ok', mode: 'demo', llm_provider: 'Browser demo (zero cost)', browser: true }))
   }, [])
 
-  const classification = result?.pipeline?.agent1_classification
-  const extraction = result?.pipeline?.agent2_extraction
-  const validation = result?.pipeline?.agent3_validation
+  const canProcess = mode === 'upload' ? Boolean(file) : text.trim().length >= 10
+  const classification = result?.pipeline.agent1_classification
+  const extracted = result?.pipeline.agent2_extraction
+  const validation = result?.pipeline.agent3_validation
+  const fieldCount = useMemo(() => extracted ? Object.values(extracted).filter((value) => value !== null && value !== '' && (!Array.isArray(value) || value.length) && (typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length)).length : 0, [extracted])
 
-  const canRun = (textMode ? rawText.trim().length > 20 : !!file) && status !== 'processing'
+  function acceptFile(candidate) {
+    setError('')
+    setResult(null)
+    if (!candidate) return
+    const extension = `.${candidate.name.split('.').pop()?.toLowerCase()}`
+    if (!SUPPORTED_EXTENSIONS.includes(extension)) {
+      setFile(null)
+      setError(`Unsupported file type. Choose ${SUPPORTED_EXTENSIONS.join(', ')}.`)
+      return
+    }
+    if (candidate.size > MAX_FILE_BYTES) {
+      setFile(null)
+      setError('That file is larger than the 10 MB upload limit.')
+      return
+    }
+    setFile(candidate)
+  }
+
+  async function processDocument() {
+    if (!canProcess || processing) return
+    setProcessing(true)
+    setError('')
+    setResult(null)
+    try {
+      if (health?.browser) {
+        let source = text
+        if (mode === 'upload') {
+          const extension = `.${file.name.split('.').pop()?.toLowerCase()}`
+          if (!['.txt', '.md', '.json', '.csv'].includes(extension)) throw new Error('The free browser demo accepts TXT, MD, JSON, and CSV uploads. Run the local API for PDF or DOCX files.')
+          source = await file.text()
+        }
+        if (source.trim().length < 10) throw new Error('Document must contain at least 10 readable characters.')
+        setResult(processInBrowser(source))
+      } else if (mode === 'upload') {
+        const form = new FormData()
+        form.append('file', file)
+        setResult(await apiRequest('/process', { method: 'POST', body: form }))
+      } else {
+        setResult(await apiRequest('/process-text', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text }),
+        }))
+      }
+    } catch (requestError) {
+      setError(requestError.message || 'Something went wrong while processing the document.')
+    } finally {
+      setProcessing(false)
+    }
+  }
+
+  function exportResult() {
+    const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `docpipeline-${result.job_id}.json`
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function reset() {
+    setFile(null)
+    setText('')
+    setResult(null)
+    setError('')
+    if (fileInput.current) fileInput.current.value = ''
+  }
 
   return (
-    <div style={{
-      minHeight: '100vh', background: '#0a0a0a', color: '#e8e8e8',
-      fontFamily: 'Syne, sans-serif', padding: '40px 24px'
-    }}>
-      <style>{`
-        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-        @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
-        * { box-sizing: border-box; }
-        ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-track { background: #111; }
-        ::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
-      `}</style>
+    <div className="app-shell">
+      <div className="ambient ambient-one" />
+      <div className="ambient ambient-two" />
 
-      <div style={{ maxWidth: 740, margin: '0 auto' }}>
-
-        {/* Header */}
-        <div style={{ marginBottom: 40 }}>
-          <div style={{ fontSize: 10, letterSpacing: '0.2em', color: '#555', fontFamily: 'DM Mono, monospace', marginBottom: 8 }}>
-            MULTI-AGENT AI SYSTEM
-          </div>
-          <h1 style={{ margin: 0, fontSize: 36, fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1.1 }}>
-            Doc<span style={{ color: '#d4a017' }}>Pipeline</span>
-          </h1>
-          <p style={{ margin: '10px 0 0', color: '#666', fontSize: 13, fontFamily: 'DM Mono, monospace' }}>
-            classify → extract → validate — three agents, one pipeline
-          </p>
+      <nav className="topbar" aria-label="Main navigation">
+        <a className="brand" href="#top" aria-label="DocPipeline home">
+          <span className="brand-mark"><Icon name="spark" size={19} /></span>
+          <span>Doc<span>Pipeline</span></span>
+        </a>
+        <div className="nav-meta">
+          <span className={`status-dot ${health?.status === 'ok' ? 'online' : ''}`} />
+          <span className="provider-name">{health ? health.llm_provider : 'Connecting…'}</span>
+          <a className="github-link" href="https://github.com/Gouthamraju11/MultiAgent-AI-DocPipeline" target="_blank" rel="noreferrer" aria-label="View source on GitHub"><Icon name="github" size={18} /></a>
         </div>
+      </nav>
 
-        {/* LLM Badge */}
-        {llmProvider && (
-          <div style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            background: '#111', border: '1px solid #2a2a2a',
-            borderRadius: 2, padding: '4px 10px', marginBottom: 20,
-            fontSize: 10, fontFamily: 'DM Mono, monospace', color: '#888'
-          }}>
-            <span style={{ color: '#2d6a4f' }}>●</span> {llmProvider}
+      <main id="top">
+        <section className="hero">
+          <div className="eyebrow"><span>◆</span> Production-grade document intelligence</div>
+          <h1>Raw documents in.<br /><em>Trusted data out.</em></h1>
+          <p>A resilient three-stage pipeline that classifies documents, extracts structured fields, and validates every result before it reaches your systems.</p>
+          <div className="hero-stats" aria-label="Product capabilities">
+            <div><strong>7</strong><span>Document types</span></div>
+            <div><strong>3</strong><span>Pipeline stages</span></div>
+            <div><strong>6</strong><span>File formats</span></div>
           </div>
-        )}
+        </section>
 
-        {/* Mode Toggle */}
-        {status === 'idle' || status === 'error' ? (
-          <>
-            <div style={{ display: 'flex', gap: 0, marginBottom: 16 }}>
-              {['Upload File', 'Paste Text'].map((label, i) => (
-                <button key={i}
-                  onClick={() => { setTextMode(i === 1); setFile(null); setRawText('') }}
-                  style={{
-                    flex: 1, padding: '9px 0', border: '1px solid #2a2a2a',
-                    borderRight: i === 0 ? 'none' : '1px solid #2a2a2a',
-                    background: (textMode ? i === 1 : i === 0) ? '#1a1a1a' : 'transparent',
-                    color: (textMode ? i === 1 : i === 0) ? '#d4a017' : '#555',
-                    fontFamily: 'DM Mono, monospace', fontSize: 11,
-                    letterSpacing: '0.08em', textTransform: 'uppercase',
-                    cursor: 'pointer', borderRadius: i === 0 ? '2px 0 0 2px' : '0 2px 2px 0',
-                    transition: 'all 0.2s'
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
+        <section className="pipeline-map" aria-label="Processing pipeline">
+          {STAGES.map((stage, index) => (
+            <div className={`stage ${processing ? 'active' : result ? 'complete' : ''}`} key={stage.number}>
+              <span className="stage-number">{result ? <Icon name="check" size={17} /> : stage.number}</span>
+              <div><strong>{stage.name}</strong><span>{stage.detail}</span></div>
+              {index < STAGES.length - 1 && <span className="stage-arrow"><Icon name="arrow" size={17} /></span>}
             </div>
+          ))}
+        </section>
 
-            {!textMode ? (
-              /* Drop Zone */
-              <div
-                onDragOver={e => { e.preventDefault(); setDragOver(true) }}
-                onDragLeave={() => setDragOver(false)}
-                onDrop={handleDrop}
-                onClick={() => fileRef.current.click()}
-                style={{
-                  border: `1px dashed ${dragOver ? '#d4a017' : file ? '#2d6a4f' : '#333'}`,
-                  borderRadius: 2, padding: '40px 24px', textAlign: 'center',
-                  cursor: 'pointer', transition: 'all 0.25s', marginBottom: 16,
-                  background: dragOver ? 'rgba(212,160,23,0.03)' : file ? 'rgba(45,106,79,0.04)' : 'transparent'
-                }}
-              >
-                <input ref={fileRef} type="file" hidden accept=".txt,.pdf,.md,.csv,.json,.docx"
-                  onChange={e => { const f = e.target.files[0]; if (f) { setFile(f); setResult(null); setError(null) } }} />
-                <div style={{ fontSize: 28, marginBottom: 12 }}>
-                  {file ? '📄' : '⬆'}
-                </div>
-                <div style={{ fontSize: 13, color: file ? '#e8e8e8' : '#666', marginBottom: 4, fontWeight: 600 }}>
-                  {file ? file.name : 'Drop a document or click to upload'}
-                </div>
-                <div style={{ fontSize: 11, color: '#444', fontFamily: 'DM Mono, monospace' }}>
-                  {file ? `${(file.size / 1024).toFixed(1)} KB` : '.pdf · .docx · .txt · .csv · .md · .json'}
-                </div>
-              </div>
-            ) : (
-              /* Text Input */
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 10, color: '#555', fontFamily: 'DM Mono, monospace', alignSelf: 'center', marginRight: 4 }}>
-                    SAMPLES:
-                  </span>
-                  {Object.entries(SAMPLES).map(([type, text]) => (
-                    <SampleDocButton key={type} label={type} text={text} onSelect={t => setRawText(t)} />
-                  ))}
-                </div>
-                <textarea
-                  value={rawText}
-                  onChange={e => setRawText(e.target.value)}
-                  placeholder="Paste document text here — invoice, contract, receipt, form, report, or letter..."
-                  style={{
-                    width: '100%', minHeight: 180, background: '#0d0d0d',
-                    border: '1px solid #2a2a2a', borderRadius: 2,
-                    color: '#e8e8e8', fontFamily: 'DM Mono, monospace', fontSize: 12,
-                    lineHeight: 1.7, padding: '14px 16px', resize: 'vertical',
-                    outline: 'none'
-                  }}
-                />
-              </div>
-            )}
+        <section className="workspace-card">
+          <div className="mode-switch" role="tablist" aria-label="Document input method">
+            <button role="tab" aria-selected={mode === 'upload'} className={mode === 'upload' ? 'selected' : ''} onClick={() => { setMode('upload'); setError(''); setResult(null) }}><Icon name="upload" size={17} /> Upload file</button>
+            <button role="tab" aria-selected={mode === 'text'} className={mode === 'text' ? 'selected' : ''} onClick={() => { setMode('text'); setError(''); setResult(null) }}><Icon name="file" size={17} /> Paste text</button>
+          </div>
 
-            {error && (
-              <div style={{
-                padding: '12px 16px', background: 'rgba(192,57,43,0.08)',
-                border: '1px solid #c0392b', borderRadius: 2, marginBottom: 16,
-                fontSize: 12, color: '#e57373', fontFamily: 'DM Mono, monospace'
-              }}>
-                ✗ {error}
-              </div>
-            )}
-
-            <button
-              disabled={!canRun}
-              onClick={runPipeline}
-              style={{
-                width: '100%', padding: '13px 0',
-                background: canRun ? '#d4a017' : '#1a1a1a',
-                border: `1px solid ${canRun ? '#d4a017' : '#2a2a2a'}`,
-                color: canRun ? '#0a0a0a' : '#444',
-                fontFamily: 'Syne, sans-serif', fontWeight: 700, fontSize: 13,
-                letterSpacing: '0.08em', textTransform: 'uppercase',
-                cursor: canRun ? 'pointer' : 'not-allowed', borderRadius: 2,
-                transition: 'all 0.2s'
-              }}
+          {mode === 'upload' ? (
+            <div
+              className={`dropzone ${dragging ? 'dragging' : ''} ${file ? 'has-file' : ''}`}
+              onDragEnter={(event) => { event.preventDefault(); setDragging(true) }}
+              onDragOver={(event) => event.preventDefault()}
+              onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setDragging(false) }}
+              onDrop={(event) => { event.preventDefault(); setDragging(false); acceptFile(event.dataTransfer.files[0]) }}
             >
-              Run Pipeline →
-            </button>
-          </>
-        ) : null}
-
-        {/* Processing View */}
-        {(status === 'processing' || status === 'complete') && (
-          <div style={{ animation: 'fadeIn 0.3s ease' }}>
-
-            {status === 'processing' && (
-              <div style={{
-                textAlign: 'center', padding: '24px 0 20px',
-                fontSize: 11, letterSpacing: '0.15em', color: '#d4a017',
-                fontFamily: 'DM Mono, monospace', textTransform: 'uppercase',
-                animation: 'pulse 1.4s infinite'
-              }}>
-                ⟳  Processing document...
+              <input ref={fileInput} id="document-upload" type="file" accept={SUPPORTED_EXTENSIONS.join(',')} onChange={(event) => acceptFile(event.target.files[0])} />
+              {file ? (
+                <div className="selected-file">
+                  <span className="file-icon"><Icon name="file" size={23} /></span>
+                  <div><strong>{file.name}</strong><span>{(file.size / 1024).toFixed(1)} KB · Ready to process</span></div>
+                  <button onClick={(event) => { event.preventDefault(); setFile(null); fileInput.current.value = '' }} aria-label="Remove file"><Icon name="close" size={18} /></button>
+                </div>
+              ) : (
+                <label htmlFor="document-upload">
+                  <span className="upload-icon"><Icon name="upload" size={27} /></span>
+                  <strong>Drop a document here</strong>
+                  <span>or click to browse your files</span>
+                  <small>PDF, DOCX, TXT, MD, JSON, CSV · up to 10 MB</small>
+                </label>
+              )}
+            </div>
+          ) : (
+            <div className="text-input-wrap">
+              <textarea value={text} onChange={(event) => { setText(event.target.value); setResult(null); setError('') }} placeholder="Paste an invoice, contract, receipt, form, report, letter, or résumé…" aria-label="Document text" maxLength={200000} />
+              <div className="text-footer">
+                <div className="samples"><span>Try a sample:</span>{Object.keys(EXAMPLES).map((type) => <button key={type} onClick={() => setText(EXAMPLES[type])}>{type}</button>)}</div>
+                <span>{text.length.toLocaleString()} / 200,000</span>
               </div>
-            )}
+            </div>
+          )}
 
-            {/* Agent Steps */}
-            <div style={{ marginBottom: 20 }}>
-              <AgentStep number="01" name="Document Classifier"
-                status={agentStatus.a1}
-                data={result?.pipeline?.agent1_classification} />
-              <AgentStep number="02" name="Field Extractor"
-                status={agentStatus.a2}
-                data={result?.pipeline?.agent2_extraction} />
-              <AgentStep number="03" name="Business Rule Validator"
-                status={agentStatus.a3}
-                data={result?.pipeline?.agent3_validation} />
+          {error && <div className="error-banner" role="alert"><Icon name="alert" size={18} /><span>{error}</span></div>}
+
+          <button className="process-button" disabled={!canProcess || processing} onClick={processDocument}>
+            {processing ? <><span className="spinner" /> Running intelligence pipeline…</> : <><Icon name="spark" size={19} /> Process document <Icon name="arrow" size={18} /></>}
+          </button>
+          {health?.mode === 'demo' && <p className="demo-note">Running in deterministic demo mode — no document content leaves your device and no paid API is used.</p>}
+        </section>
+
+        {result && (
+          <section className="results" aria-live="polite">
+            <div className="results-heading">
+              <div><span className="section-kicker">Pipeline complete</span><h2>Structured result</h2></div>
+              <div className="result-actions"><button onClick={reset}>New document</button><button className="export" onClick={exportResult}><Icon name="download" size={17} /> Export JSON</button></div>
             </div>
 
-            {/* Results */}
-            {status === 'complete' && result && (
-              <div style={{ animation: 'fadeIn 0.4s ease' }}>
+            <div className="result-summary">
+              <div className="document-type"><span>Detected type</span><strong>{formatLabel(classification.doc_type)}</strong><small>{Math.round(classification.confidence * 100)}% confidence</small></div>
+              <div className={`validation-state ${validation.valid ? 'valid' : 'invalid'}`}><span className="validation-icon"><Icon name={validation.valid ? 'check' : 'alert'} size={23} /></span><div><span>Validation</span><strong>{validation.valid ? 'Passed' : 'Needs attention'}</strong><small>{validation.human_review_required ? 'Human review recommended' : 'Ready for downstream use'}</small></div></div>
+              <div className="summary-metric"><span>Fields captured</span><strong>{fieldCount}</strong><small>of {Object.keys(extracted).length} schema fields</small></div>
+              <div className="summary-metric"><span>Processing time</span><strong>{result.processing_time_ms}<i>ms</i></strong><small>Job {result.job_id}</small></div>
+            </div>
 
-                {/* Doc Type */}
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: 14,
-                  padding: '16px 20px',
-                  background: '#0d0d0d', border: '1px solid #2a2a2a',
-                  borderRadius: 2, marginBottom: 16
-                }}>
-                  <div style={{ fontSize: 32 }}>
-                    {DOC_ICONS[classification?.doc_type] || '📄'}
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 10, letterSpacing: '0.15em', color: '#555', fontFamily: 'DM Mono, monospace', textTransform: 'uppercase' }}>
-                      Document Type
-                    </div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: '#d4a017', letterSpacing: '-0.01em' }}>
-                      {classification?.doc_type?.toUpperCase() || 'UNKNOWN'}
-                    </div>
-                    <div style={{ fontSize: 11, color: '#666', fontFamily: 'DM Mono, monospace' }}>
-                      {(classification?.confidence * 100).toFixed(0)}% confidence · {result.processing_time_ms}ms
-                    </div>
-                  </div>
-                </div>
+            <div className="result-grid">
+              <article className="result-panel extracted-panel">
+                <div className="panel-title"><div><span className="panel-index">02</span><div><h3>Extracted data</h3><p>Normalized fields ready for your application</p></div></div><span className="field-badge">{fieldCount} populated</span></div>
+                <dl className="fields-grid">
+                  {Object.entries(extracted).map(([key, value]) => <div className="field-row" key={key}><dt>{formatLabel(key)}</dt><dd>{formatValue(value)}</dd></div>)}
+                </dl>
+              </article>
 
-                {/* Reasoning */}
-                {classification?.reasoning && (
-                  <div style={{
-                    padding: '10px 14px', background: '#0d0d0d',
-                    border: '1px solid #2a2a2a', borderRadius: 2,
-                    fontSize: 11, color: '#888', fontFamily: 'DM Mono, monospace',
-                    lineHeight: 1.6, marginBottom: 8
-                  }}>
-                    💬 {classification.reasoning}
-                  </div>
-                )}
-
-                {/* Validation result */}
-                <ValidationBadge validation={validation} />
-
-                {/* Extracted Fields Summary */}
-                {extraction && (
-                  <div style={{ marginTop: 16 }}>
-                    <div style={{
-                      fontSize: 10, letterSpacing: '0.15em', color: '#555',
-                      fontFamily: 'DM Mono, monospace', textTransform: 'uppercase',
-                      marginBottom: 8
-                    }}>
-                      Extracted Fields
+              <div className="side-results">
+                <article className="result-panel">
+                  <div className="panel-title"><div><span className="panel-index">01</span><div><h3>Classification</h3><p>Why the pipeline chose this type</p></div></div></div>
+                  <p className="reasoning">{classification.reasoning}</p>
+                  <div className="confidence-track"><span style={{ width: `${classification.confidence * 100}%` }} /></div>
+                </article>
+                <article className="result-panel">
+                  <div className="panel-title"><div><span className="panel-index">03</span><div><h3>Quality checks</h3><p>Deterministic and semantic validation</p></div></div></div>
+                  {!validation.issues.length && !validation.warnings.length ? <div className="all-clear"><Icon name="check" size={18} /> All required checks passed</div> : (
+                    <div className="issues-list">
+                      {validation.issues.map((issue) => <div className="issue error" key={issue}><Icon name="alert" size={16} />{issue}</div>)}
+                      {validation.warnings.map((warning) => <div className="issue warning" key={warning}><Icon name="alert" size={16} />{warning}</div>)}
                     </div>
-                    <div style={{
-                      background: '#0d0d0d', border: '1px solid #2a2a2a',
-                      borderRadius: 2, overflow: 'hidden'
-                    }}>
-                      {Object.entries(extraction).slice(0, 10).map(([k, v], i) => (
-                        <div key={k} style={{
-                          display: 'flex', gap: 12, padding: '9px 14px',
-                          borderBottom: i < Object.entries(extraction).length - 1 ? '1px solid #1a1a1a' : 'none'
-                        }}>
-                          <div style={{
-                            minWidth: 140, fontSize: 11, color: '#555',
-                            fontFamily: 'DM Mono, monospace', flexShrink: 0
-                          }}>
-                            {k}
-                          </div>
-                          <div style={{
-                            fontSize: 11, color: v ? '#c8e6c9' : '#444',
-                            fontFamily: 'DM Mono, monospace', wordBreak: 'break-word'
-                          }}>
-                            {v === null ? 'null' : Array.isArray(v) ? `[${v.length} items]` : typeof v === 'object' ? JSON.stringify(v) : String(v)}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Actions */}
-                <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
-                  <button
-                    onClick={reset}
-                    style={{
-                      flex: 1, padding: '10px 0', background: 'transparent',
-                      border: '1px solid #2a2a2a', color: '#888',
-                      fontFamily: 'DM Mono, monospace', fontSize: 11,
-                      letterSpacing: '0.08em', textTransform: 'uppercase',
-                      cursor: 'pointer', borderRadius: 2, transition: 'all 0.2s'
-                    }}
-                    onMouseEnter={e => { e.target.style.borderColor = '#d4a017'; e.target.style.color = '#d4a017' }}
-                    onMouseLeave={e => { e.target.style.borderColor = '#2a2a2a'; e.target.style.color = '#888' }}
-                  >
-                    ← New Document
-                  </button>
-                  <button
-                    onClick={() => {
-                      const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' })
-                      const url = URL.createObjectURL(blob)
-                      const a = document.createElement('a')
-                      a.href = url; a.download = `pipeline-${result.job_id}.json`; a.click()
-                    }}
-                    style={{
-                      flex: 1, padding: '10px 0', background: 'transparent',
-                      border: '1px solid #2a2a2a', color: '#888',
-                      fontFamily: 'DM Mono, monospace', fontSize: 11,
-                      letterSpacing: '0.08em', textTransform: 'uppercase',
-                      cursor: 'pointer', borderRadius: 2, transition: 'all 0.2s'
-                    }}
-                    onMouseEnter={e => { e.target.style.borderColor = '#2d6a4f'; e.target.style.color = '#2d6a4f' }}
-                    onMouseLeave={e => { e.target.style.borderColor = '#2a2a2a'; e.target.style.color = '#888' }}
-                  >
-                    ↓ Export JSON
-                  </button>
-                </div>
+                  )}
+                </article>
               </div>
-            )}
-          </div>
-        )}
+            </div>
 
-        {/* Footer */}
-        <div style={{
-          marginTop: 48, paddingTop: 20, borderTop: '1px solid #1a1a1a',
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center'
-        }}>
-          <div style={{ fontSize: 10, color: '#333', fontFamily: 'DM Mono, monospace' }}>
-            AWS BEDROCK · LANGCHAIN · FASTAPI · REACT
-          </div>
-          <div style={{ fontSize: 10, color: '#333', fontFamily: 'DM Mono, monospace' }}>
-            3-AGENT PIPELINE
-          </div>
-        </div>
-      </div>
+            <details className="raw-result"><summary>Inspect raw API response <span>JSON</span></summary><pre>{JSON.stringify(result, null, 2)}</pre></details>
+          </section>
+        )}
+      </main>
+
+      <footer><span>DocPipeline v2.0</span><span>Built for reliable document automation</span>{health?.browser ? <a href="https://github.com/Gouthamraju11/MultiAgent-AI-DocPipeline" target="_blank" rel="noreferrer">View source <Icon name="arrow" size={14} /></a> : <a href={`${API_BASE}/docs`} target="_blank" rel="noreferrer">API docs <Icon name="arrow" size={14} /></a>}</footer>
     </div>
   )
 }
+
+export default App
